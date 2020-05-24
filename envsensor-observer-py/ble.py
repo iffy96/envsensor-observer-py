@@ -361,6 +361,7 @@ def _handle_le_meta_event(pkt):
 
     elif subevent == EVT_LE_CONN_UPDATE_COMPLETE:
         result["bluetooth_le_subevent_name"] = "EVT_LE_CONN_UPDATE_COMPLETE"
+        print("EVT_LE_CONN_UPDATE_COMPLETE")
         raise NotImplementedError("EVT_LE_CONN_UPDATE_COMPLETE")
 
     elif subevent == EVT_LE_READ_REMOTE_USED_FEATURES_COMPLETE:

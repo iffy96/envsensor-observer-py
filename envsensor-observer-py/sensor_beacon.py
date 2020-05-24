@@ -45,8 +45,13 @@ class SensorBeacon:
     sensor_type = "UNKNOWN"
     gateway = "UNKNOWN"
 
-    def __init__(self, bt_address_s, sensor_type_s, gateway_s, pkt):
+    serial = None
+
+    def __init__(self, bt_address_s, serial, sensor_type_s, gateway_s, pkt):
         self.bt_address = bt_address_s
+
+        if serial:
+            self.serial = serial
 
         if ((sensor_type_s == "IM") or (sensor_type_s == "EP")):
             self.seq_num = str_util.c2B(pkt[7])
@@ -227,6 +232,7 @@ class SensorBeacon:
             'gateway': self.gateway,
             'sensor_type': self.sensor_type,
             'bt_address': self.bt_address,
+            'serial': self.serial,
             'temperature': self.val_temp,
             'humidity': self.val_humi,
             'light': self.val_light,

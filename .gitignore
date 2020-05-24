@@ -87,3 +87,7 @@ ENV/
 
 # Rope project settings
 .ropeproject
+
+# csvlog
+log/*
+envsensor-observer-py/log/*

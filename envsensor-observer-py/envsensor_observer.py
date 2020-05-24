@@ -21,10 +21,12 @@ import socket
 import datetime
 import threading
 import struct
+from bluetooth.ble import GATTRequester
 
 import sensor_beacon as envsensor
 import conf
 import ble
+import str_util
 
 if conf.CSV_OUTPUT:
     import logging
@@ -44,6 +46,7 @@ GATEWAY = socket.gethostname()
 # Global variables
 influx_client = None
 sensor_list = []
+serial_map = {}
 flag_update_sensor_status = False
 
 
@@ -105,8 +108,13 @@ def parse_events(sock, loop_count=10):
 
         for report in parsed_packet["advertising_reports"]:
             if (ble.verify_beacon_packet(report)):
+                rssi = str_util.c2b(report["payload_binary"][-1])
+                serial = None
+                if rssi > -90:
+                    serial = get_serial(report["peer_bluetooth_address_s"])
                 sensor = envsensor.SensorBeacon(
                     report["peer_bluetooth_address_s"],
+                    serial,
                     ble.classify_beacon_packet(report),
                     GATEWAY,
                     report["payload_binary"])
@@ -164,6 +172,25 @@ def eval_sensor_state():
     timer.setDaemon(True)
     timer.start()
 
+def get_serial(bluetooth_address_s):
+    global serial_map
+    if bluetooth_address_s in serial_map:
+        return serial_map[bluetooth_address_s]
+    macaddress = ':'.join([bluetooth_address_s[i: i+2] for i in range(0, len(bluetooth_address_s), 2)])
+    requester = GATTRequester(macaddress, False)
+    try:
+        requester.connect(True, channel_type="random")
+        data = requester.read_by_uuid("00002a25-0000-1000-8000-00805f9b34fb")
+        serial = data[0]
+        serial_map[bluetooth_address_s] = serial
+        requester.disconnect()
+        return serial
+    except:
+        import traceback
+        traceback.print_exc()
+        return None
+    
+    
 
 def print_sensor_state():
     print "----------------------------------------------------"
@@ -231,92 +258,9 @@ def arg_parse():
     args = parser.parse_args()
     return args
 
-
-# main function
-if __name__ == "__main__":
+def run(args):
+    global flag_update_sensor_status
     try:
-        flag_scanning_started = False
-
-        # process command line arguments
-        debug = False
-        args = arg_parse()
-        if args.debug:
-            debug = True
-
-        # reset bluetooth functionality
-        try:
-            if debug:
-                print "-- reseting bluetooth device"
-            ble.reset_hci()
-            if debug:
-                print "-- reseting bluetooth device : success"
-        except Exception as e:
-            print "error enabling bluetooth device"
-            print str(e)
-            sys.exit(1)
-
-        # initialize cloud (influxDB) output interface
-        try:
-            if conf.INFLUXDB_OUTPUT:
-                if debug:
-                    print "-- initialize influxDB interface"
-                influx_client = InfluxDBClient(conf.INFLUXDB_ADDRESS,
-                                               conf.INFLUXDB_PORT,
-                                               conf.INFLUXDB_USER,
-                                               conf.INFLUXDB_PASSWORD,
-                                               conf.INFLUXDB_DATABASE)
-                influx_client.create_database(conf.INFLUXDB_DATABASE)
-                if debug:
-                    print "-- initialize influxDB interface : success"
-        except Exception as e:
-            print "error initializing influxDB output interface"
-            print str(e)
-            sys.exit(1)
-
-        # initialize fluentd forwarder
-        try:
-            if conf.FLUENTD_FORWARD:
-                if debug:
-                    print "-- initialize fluentd"
-                init_fluentd()
-                # create database when using influxDB through fluentd.
-                if conf.FLUENTD_INFLUXDB:
-                    create_influx_database()
-                if debug:
-                    print "-- initialize fluentd : success"
-        except Exception as e:
-            print "error initializing fluentd forwarder"
-            print str(e)
-            sys.exit(1)
-
-        # initialize csv output interface
-        try:
-            if conf.CSV_OUTPUT:
-                if debug:
-                    print "-- initialize csv logger"
-
-                if not os.path.isdir(conf.CSV_DIR_PATH):
-                    os.makedirs(conf.CSV_DIR_PATH)
-                csv_path = conf.CSV_DIR_PATH + "/env_sensor_log.csv"
-                # create time-rotating log handler
-                loghndl = csv_logger.CSVHandler(csv_path, 'midnight', 1)
-                form = '%(message)s'
-                logFormatter = logging.Formatter(form)
-                loghndl.setFormatter(logFormatter)
-
-                # create logger
-                log = logging.getLogger('CSVLogger')
-                loghndl.configureHeaderWriter(envsensor.csv_header(), log)
-                log.addHandler(loghndl)
-                log.setLevel(logging.INFO)
-                log.info(envsensor.csv_header())
-
-                if debug:
-                    print "-- initialize csv logger : success"
-        except Exception as e:
-            print "error initializing csv output interface"
-            print str(e)
-            sys.exit(1)
 
         # initialize bluetooth socket
         try:
@@ -383,11 +327,11 @@ if __name__ == "__main__":
                 print_sensor_state()
                 flag_update_sensor_status = False
 
-    except Exception as e:
-        print "Exception: " + str(e)
-        import traceback
-        traceback.print_exc()
-        sys.exit(1)
+    # except Exception as e:
+    #     print "Exception: " + str(e)
+    #     import traceback
+    #     traceback.print_exc()
+    #     sys.exit(1)
 
     finally:
         if flag_scanning_started:
@@ -395,4 +339,97 @@ if __name__ == "__main__":
             sock.setsockopt(ble.bluez.SOL_HCI, ble.bluez.HCI_FILTER,
                             old_filter)
             ble.hci_le_disable_scan(sock)
-        print "Exit"
+        #print "Exit"
+
+
+# main function
+if __name__ == "__main__":
+    args = arg_parse()
+    debug = False
+    flag_scanning_started = False
+    if args.debug:
+        debug = True
+
+    # reset bluetooth functionality
+    try:
+        if debug:
+            print "-- reseting bluetooth device"
+        ble.reset_hci()
+        if debug:
+            print "-- reseting bluetooth device : success"
+    except Exception as e:
+        print "error enabling bluetooth device"
+        print str(e)
+        sys.exit(1)
+
+    # initialize cloud (influxDB) output interface
+    try:
+        if conf.INFLUXDB_OUTPUT:
+            if debug:
+                print "-- initialize influxDB interface"
+            influx_client = InfluxDBClient(conf.INFLUXDB_ADDRESS,
+                                            conf.INFLUXDB_PORT,
+                                            conf.INFLUXDB_USER,
+                                            conf.INFLUXDB_PASSWORD,
+                                            conf.INFLUXDB_DATABASE)
+            influx_client.create_database(conf.INFLUXDB_DATABASE)
+            if debug:
+                print "-- initialize influxDB interface : success"
+    except Exception as e:
+        print "error initializing influxDB output interface"
+        print str(e)
+        sys.exit(1)
+
+    # initialize fluentd forwarder
+    try:
+        if conf.FLUENTD_FORWARD:
+            if debug:
+                print "-- initialize fluentd"
+            init_fluentd()
+            # create database when using influxDB through fluentd.
+            if conf.FLUENTD_INFLUXDB:
+                create_influx_database()
+            if debug:
+                print "-- initialize fluentd : success"
+    except Exception as e:
+        print "error initializing fluentd forwarder"
+        print str(e)
+        sys.exit(1)
+
+    # initialize csv output interface
+    try:
+        if conf.CSV_OUTPUT:
+            if debug:
+                print "-- initialize csv logger"
+
+            if not os.path.isdir(conf.CSV_DIR_PATH):
+                os.makedirs(conf.CSV_DIR_PATH)
+            csv_path = conf.CSV_DIR_PATH + "/env_sensor_log.csv"
+            # create time-rotating log handler
+            loghndl = csv_logger.CSVHandler(csv_path, 'midnight', 1)
+            form = '%(message)s'
+            logFormatter = logging.Formatter(form)
+            loghndl.setFormatter(logFormatter)
+
+            # create logger
+            log = logging.getLogger('CSVLogger')
+            loghndl.configureHeaderWriter(envsensor.csv_header(), log)
+            log.addHandler(loghndl)
+            log.setLevel(logging.INFO)
+            log.info(envsensor.csv_header())
+
+            if debug:
+                print "-- initialize csv logger : success"
+    except Exception as e:
+        print "error initializing csv output interface"
+        print str(e)
+        sys.exit(1)
+    while True:
+        try:
+            run(args)
+        except NotImplementedError as e:
+            print "Exception: " + str(e)
+            if str(e) != "EVT_LE_CONN_UPDATE_COMPLETE":
+                import traceback
+                traceback.print_exc()
+                sys.exit(1)
