@@ -6,6 +6,7 @@ import datetime
 
 import str_util
 import ble
+import elasticsearch
 
 
 # Env Senor (OMRON 2JCIE-BL01 Broadcaster) ####################################
@@ -290,6 +291,36 @@ class SensorBeacon:
             }
         ]
         client_influxdb.write_points(json_body)
+
+    def upload_elasticsearch(self, client, timestamp):
+        body = {
+            "timestamp": timestamp.strftime("%Y-%m-%dT%H:%M:%S%z"),
+            "gateway": self.gateway,
+            "sensor_type": self.sensor_type,
+            "bt_address": self.bt_address,
+            "serial": self.serial,
+            "temperature": self.val_temp,
+            "humidity": self.val_humi,
+            "light": self.val_light,
+            "uv": self.val_uv,
+            "pressure": self.val_pressure,
+            "noise": self.val_noise,
+            "di": self.val_di,
+            "heat": self.val_heat,
+            "accel_x": self.val_ax,
+            "accel_y": self.val_ay,
+            "accel_z": self.val_az,
+            "etvoc": self.val_etvoc,
+            "eco2": self.val_eco2,
+            "si": self.val_si,
+            "pga": self.val_pga,
+            "seismic": self.val_seismic,
+            "vibinfo": self.vibinfo,
+            "battery": self.val_battery,
+            "rssi": self.rssi,
+            "distance": self.distance,
+        }
+        client.index(index='envsensor', doc_type='_doc', body=body)
 
     def debug_print(self):
         print "\tgateway = ", self.gateway

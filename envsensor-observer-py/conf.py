@@ -15,13 +15,13 @@ INACTIVE_TIMEOUT_SECONDS = 60
 
 
 # csv output to local file system
-CSV_OUTPUT = True
+CSV_OUTPUT = False
 # the directory path for csv output
 CSV_DIR_PATH = os.path.dirname(os.path.abspath(__file__)) + "/log"
 
 
 # use fluentd forwarder
-FLUENTD_FORWARD = True
+FLUENTD_FORWARD = False
 # fluent-logger-python
 FLUENTD_TAG = "env01"  # enter "tag" name
 FLUENTD_ADDRESS = "localhost"  # enter "localhost" or IP address of remote fluentd

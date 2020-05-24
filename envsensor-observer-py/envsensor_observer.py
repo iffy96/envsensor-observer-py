@@ -22,6 +22,7 @@ import datetime
 import threading
 import struct
 from bluetooth.ble import GATTRequester
+import elasticsearch
 
 import sensor_beacon as envsensor
 import conf
@@ -49,6 +50,15 @@ sensor_list = []
 serial_map = {}
 flag_update_sensor_status = False
 
+# REF: http://takatoshiono.hatenablog.com/entry/2014/12/18/192726
+from datetime import timedelta, tzinfo
+class JST(tzinfo):
+    def utcoffset(self, dt):
+        return timedelta(hours=9)
+    def dst(self, dt):
+        return timedelta(0)
+    def tzname(self, dt):
+        return "JST"
 
 def parse_events(sock, loop_count=10):
     global sensor_list
@@ -87,6 +97,7 @@ def parse_events(sock, loop_count=10):
     # * Maximum Data Length of an advertising packet = 0x1F
 
     parsed_packet = ble.hci_le_parse_response_packet(pkt)
+    timestamp = datetime.datetime.now(tz=JST())
 
     if "bluetooth_le_subevent_name" in parsed_packet and \
             (parsed_packet["bluetooth_le_subevent_name"]
@@ -131,11 +142,11 @@ def parse_events(sock, loop_count=10):
 
                 if (index != -1):  # BT Address found in sensor_list
                     if sensor.check_diff_seq_num(sensor_list[index]):
-                        handling_data(sensor)
+                        handling_data(sensor, timestamp)
                     sensor.update(sensor_list[index])
                 else:  # new SensorBeacon
                     sensor_list.append(sensor)
-                    handling_data(sensor)
+                    handling_data(sensor, timestamp)
                 lock.release()
             else:
                 pass
@@ -145,7 +156,8 @@ def parse_events(sock, loop_count=10):
 
 
 # data handling
-def handling_data(sensor):
+def handling_data(sensor, timestamp):
+    sensor.upload_elasticsearch(es_client, timestamp)
     if conf.INFLUXDB_OUTPUT:
         sensor.upload_influxdb(influx_client)
     if conf.FLUENTD_FORWARD:
@@ -361,6 +373,8 @@ if __name__ == "__main__":
         print "error enabling bluetooth device"
         print str(e)
         sys.exit(1)
+
+    es_client = elasticsearch.Elasticsearch("localhost:19200")
 
     # initialize cloud (influxDB) output interface
     try:
